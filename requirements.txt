@@ -4,3 +4,7 @@ fastapi
 uvicorn[standard]
 httpx
 python-dotenv
+
+# Dev / test dependencies
+pytest
+pytest-asyncio
