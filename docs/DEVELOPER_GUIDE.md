@@ -978,3 +978,64 @@ def test_atmosphere_bpm_mapping():
 | Change server port                  | `PORT` env var or `server.py:296`    |
 | Understand the math                 | `SCIENCE.md`                         |
 | Understand the architecture          | `docs/ARCHITECTURE.md`               |
+| Run the test suite                  | `python -m pytest tests/ -v`         |
+
+---
+
+## 13. Development History: Parallel Agent Workflow
+
+The frontend redesign, test suite, and this documentation were all developed simultaneously using three Claude Code agents running in parallel, each in an isolated git worktree. This section documents the process for future reference.
+
+### 13.1 What Are Git Worktrees?
+
+Git worktrees allow multiple working directories to share the same repository. Each worktree checks out a different branch, so multiple agents can modify files without interfering with each other. Think of it like having three separate copies of the project that all share the same git history.
+
+### 13.2 The Three Agents
+
+Three agents were launched from a single Claude Code session, each with `isolation: "worktree"`:
+
+**Agent 1: Frontend Redesign**
+- Task: Redesign `static/index.html` using the `frontend-design` skill
+- Constraint: Preserve all 16 existing features (WebSocket protocol, Canvas visualizers, AudioWorklet, lens switching, sliders, controls readout, backend badge, etc.)
+- Result: Industrial-scientific laboratory aesthetic with phosphor green accents, CRT scanline overlay on the canvas viewport, DM Mono typography, segmented meter bars, 2x2 lens grid layout
+- Files changed: `static/index.html` only (680 insertions, 202 deletions)
+- No Python files were modified
+
+**Agent 2: TDD Test Suite**
+- Task: Add a comprehensive pytest test suite covering all modules
+- Constraint: Zero modifications to existing source code -- tests validate existing behavior as-is
+- Result: 272 tests across 7 test files, all passing in 1.22 seconds
+- Files created: `tests/__init__.py`, `tests/conftest.py`, `tests/test_control_state.py`, `tests/test_lenses.py`, `tests/test_simulators.py`, `tests/test_mock_audio.py`, `tests/test_elevenlabs_bridge.py`, `tests/test_server.py`
+- Files modified: `requirements.txt` (added pytest, pytest-asyncio), `pyproject.toml` (added dev dependencies and pytest config)
+
+Test breakdown:
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| `test_control_state.py` | 58 | All 9 default field values, `clamped()` enforcement for every field at boundary and extreme values, `diff()` dead-zone thresholds (0.01 for continuous, exact for discrete) |
+| `test_lenses.py` | 72 | All 4 lenses: monotone mapping invariants (higher input = higher output), EMA smoothing convergence, prompt generation for all conditions, scale selection by parameter value, `update()` output clamping |
+| `test_simulators.py` | 47 | All simulators: expected output keys, value ranges over 500 ticks, seed determinism, Lorenz chaos metric boundaries, Poisson variate correctness (including Gaussian fallback for large lambda), burst logic |
+| `test_mock_audio.py` | 22 | PCM format (9600 bytes/chunk, 16-bit signed range), scale quantization to all 4 Lyria scales, all 8 ControlState field mappings (brightness->frequency, density->harmonics, etc.), deterministic output with same seed |
+| `test_elevenlabs_bridge.py` | 39 | `_build_prompt()` threshold behavior for BPM (<80/110/140), density (<0.3/>0.7), brightness (<0.3/>0.7), all 4 scale-to-mood mappings, mute flags, temperature thresholds, prompt weight sorting, mono-to-stereo conversion |
+| `test_server.py` | 17 | HTTP GET endpoints, WebSocket init message structure, lens switching, parameter setting, pause/play broadcasts, toggle_live, invalid lens handling |
+
+**Agent 3: Documentation**
+- Task: Create comprehensive documentation for developers and users
+- Constraint: No Python or JavaScript source files modified -- documentation only
+- Result: 6 documentation files totaling 3,814 lines
+- Files created: `docs/ARCHITECTURE.md` (1,072 lines), `docs/DEVELOPER_GUIDE.md` (980 lines), `docs/USER_GUIDE.md` (585 lines), `docs/API_REFERENCE.md` (763 lines), `CLAUDE.md` (152 lines)
+- Files modified: `README.md` (replaced with comprehensive version)
+
+### 13.3 Merge Process
+
+After all three agents completed, their worktree branches were merged into main one at a time:
+
+1. Frontend branch merged cleanly (only touched `static/index.html`)
+2. TDD branch merged cleanly (only touched `tests/`, `requirements.txt`, `pyproject.toml`)
+3. Documentation branch had a merge conflict in `CLAUDE.md` (both the earlier manual commit and the docs agent created this file). Resolved by taking the docs agent's more comprehensive version and adding the test command.
+
+All worktrees and temporary branches were cleaned up after merging.
+
+### 13.4 Why the Demo Video Shows the Old UI
+
+The demo video in the repository was recorded before the frontend redesign agent ran. The current application uses the new industrial-scientific design, but the video still shows the original layout. All functionality is identical -- only the visual presentation changed.
