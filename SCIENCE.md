@@ -1,4 +1,4 @@
-# The Science of Synaesthesia Engine
+# The Science of Sonify
 
 ## Sonification Theory and Physical Modeling
 
@@ -13,7 +13,7 @@ of data. The human auditory system resolves temporal patterns down to ~2 ms (com
 (the "cocktail party effect"), and processes multiple layered signals simultaneously
 (we hear melody, harmony, rhythm, and timbre in parallel).
 
-The Synaesthesia Engine implements **parameter-mapping sonification** (PMSon), the most
+Sonify implements **parameter-mapping sonification** (PMSon), the most
 widely studied sonification paradigm. In PMSon, each data dimension is mapped to a
 distinct auditory dimension through a transfer function. The critical constraint is that
 these mappings must be:

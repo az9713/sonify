@@ -1,4 +1,4 @@
-# Synaesthesia Engine
+# Sonify
 
 > *Hear what numbers hide. See what sound reveals.*
 
@@ -7,7 +7,7 @@ A browser-based platform that maps abstract data through deterministic pipelines
 ## Quick Start
 
 ```bash
-cd synaesthesia-engine
+cd sonify
 pip install -r requirements.txt
 python server.py
 ```
@@ -55,7 +55,7 @@ Python Server (server.py)
 ## File Structure
 
 ```
-synaesthesia-engine/
+sonify/
   pyproject.toml                  # Project metadata and dependencies
   requirements.txt                # pip install -r requirements.txt
   .env.example                    # GOOGLE_API_KEY placeholder

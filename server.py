@@ -1,4 +1,4 @@
-"""Synaesthesia Engine — FastAPI server with WebSocket hub and tick loop.
+"""Sonify — FastAPI server with WebSocket hub and tick loop.
 
 Run: python server.py
 Open: http://localhost:8000
@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     await bridge.connect()
     tick_task = asyncio.create_task(tick_loop())
     audio_task = asyncio.create_task(audio_loop())
-    print(f"\n  Synaesthesia Engine running at http://localhost:8000")
+    print(f"\n  Sonify running at http://localhost:8000")
     print(f"  Audio mode: {'Mock (sine wave)' if bridge.is_mock else 'Lyria RealTime'}\n")
     yield
     if tick_task:
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     await bridge.disconnect()
 
 
-app = FastAPI(title="Synaesthesia Engine", lifespan=lifespan)
+app = FastAPI(title="Sonify", lifespan=lifespan)
 
 # Global state
 bridge = LyriaBridge()

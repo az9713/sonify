@@ -62,7 +62,7 @@ class ControlState:
 
 
 class Lens(abc.ABC):
-    """Abstract base for all synaesthesia lenses.
+    """Abstract base for all sonification lenses.
 
     A lens takes domain-specific data, maps it to ControlState (for Lyria)
     and viz_state (for the Canvas renderer).
