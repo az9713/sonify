@@ -14,3 +14,13 @@ dependencies = [
 
 [project.scripts]
 sonify = "server:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
