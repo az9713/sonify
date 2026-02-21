@@ -4,6 +4,8 @@
 
 A browser-based platform that maps abstract data through deterministic pipelines into real-time music (via Google's Lyria 3) and synchronized Canvas visualizations. Four interchangeable "lenses" each sonify a different domain: weather, cardiac activity, mathematical attractors, and network traffic.
 
+<video src="https://github.com/az9713/sonify/raw/main/assets/demo.mp4" controls autoplay muted loop width="100%"></video>
+
 ## Quick Start
 
 ```bash
