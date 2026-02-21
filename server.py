@@ -22,7 +22,18 @@ load_dotenv()
 
 from lenses import LENSES, Lens
 from lyria_bridge import LyriaBridge
+from elevenlabs_bridge import ElevenLabsBridge
 from data_sources.live_weather import LiveWeatherFetcher
+
+
+def create_bridge():
+    """Select the best available audio backend: Lyria > ElevenLabs > Mock."""
+    if os.environ.get("GOOGLE_API_KEY"):
+        return LyriaBridge()
+    elif os.environ.get("ELEVENLABS_API_KEY"):
+        return ElevenLabsBridge()
+    else:
+        return LyriaBridge()  # falls back to mock internally
 
 
 @asynccontextmanager
@@ -32,8 +43,14 @@ async def lifespan(app: FastAPI):
     await bridge.connect()
     tick_task = asyncio.create_task(tick_loop())
     audio_task = asyncio.create_task(audio_loop())
+    if bridge.is_mock:
+        mode = "Mock (sine wave)"
+    elif isinstance(bridge, ElevenLabsBridge):
+        mode = "ElevenLabs Music"
+    else:
+        mode = "Lyria RealTime"
     print(f"\n  Sonify running at http://localhost:8000")
-    print(f"  Audio mode: {'Mock (sine wave)' if bridge.is_mock else 'Lyria RealTime'}\n")
+    print(f"  Audio mode: {mode}\n")
     yield
     if tick_task:
         tick_task.cancel()
@@ -45,7 +62,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Sonify", lifespan=lifespan)
 
 # Global state
-bridge = LyriaBridge()
+bridge = create_bridge()
 active_lens: Lens | None = None
 active_lens_name: str = "atmosphere"
 connected_clients: list[WebSocket] = []
@@ -54,6 +71,16 @@ tick_task: asyncio.Task | None = None
 audio_task: asyncio.Task | None = None
 use_live_weather: bool = False
 paused: bool = False
+
+
+def get_backend_name() -> str:
+    """Return a short backend identifier for the frontend."""
+    if bridge.is_mock:
+        return "mock"
+    elif isinstance(bridge, ElevenLabsBridge):
+        return "elevenlabs"
+    else:
+        return "lyria"
 
 
 def create_lens(name: str) -> Lens:
@@ -134,6 +161,7 @@ async def tick_loop() -> None:
                 "controls": controls_readout,
                 "lens": active_lens.name,
                 "is_mock": bridge.is_mock,
+                "backend": get_backend_name(),
             })
 
         except Exception as e:
@@ -204,6 +232,7 @@ async def websocket_endpoint(ws: WebSocket):
             for name, cls in LENSES.items()
         },
         "is_mock": bridge.is_mock,
+        "backend": get_backend_name(),
         "paused": paused,
     }))
 

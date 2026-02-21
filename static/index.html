@@ -68,6 +68,11 @@
     color: #fbbf24;
   }
 
+  .badge.elevenlabs {
+    background: #1a2a3a;
+    color: #5bc0de;
+  }
+
   /* Play/Pause button */
   .play-pause-btn {
     display: flex;
@@ -492,7 +497,7 @@ function connectWS() {
       if (msg.type === 'init') {
         lensesInfo = msg.lenses;
         currentLens = msg.lens;
-        updateMockBadge(msg.is_mock);
+        updateMockBadge(msg.is_mock, msg.backend);
         updatePlayPauseUI(msg.paused || false);
         playPauseBtn.disabled = false;
         buildLensButtons();
@@ -507,7 +512,7 @@ function connectWS() {
 
       if (msg.viz) vizState = msg.viz;
       if (msg.controls) updateControlsReadout(msg.controls);
-      if (msg.is_mock !== undefined) updateMockBadge(msg.is_mock);
+      if (msg.is_mock !== undefined) updateMockBadge(msg.is_mock, msg.backend);
       if (msg.lens) {
         currentLens = msg.lens;
         highlightActiveLens();
@@ -551,11 +556,14 @@ function updatePlayPauseUI(paused) {
 // ═══════════════════════════════════════════════════════════════════════
 // UI builders
 // ═══════════════════════════════════════════════════════════════════════
-function updateMockBadge(isMock) {
+function updateMockBadge(isMock, backend) {
   const badge = document.getElementById('status-badge');
   if (isMock) {
     badge.textContent = 'Mock Audio';
     badge.className = 'badge mock';
+  } else if (backend === 'elevenlabs') {
+    badge.textContent = 'ElevenLabs Music';
+    badge.className = 'badge elevenlabs';
   } else {
     badge.textContent = 'Lyria RealTime';
     badge.className = 'badge';

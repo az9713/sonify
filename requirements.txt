@@ -1,4 +1,5 @@
 google-genai
+elevenlabs
 fastapi
 uvicorn[standard]
 httpx
