@@ -2,23 +2,46 @@
 
 > *Hear what numbers hide. See what sound reveals.*
 
-A browser-based platform that maps abstract data through deterministic pipelines into real-time music and synchronized Canvas visualizations. Four interchangeable "lenses" each sonify a different domain: weather, cardiac activity, mathematical attractors, and network traffic.
+Sonify is a browser-based data sonification platform that converts abstract data into real-time music and synchronized visualizations. Four interchangeable "lenses" each sonify a different domain: weather, cardiac activity, mathematical attractors, and network traffic.
 
-Supports three audio backends with automatic fallback: **Lyria RealTime** (Google's generative model) → **ElevenLabs Music** (text-prompt-based generation) → **Mock** (sine-wave synth).
+Three audio backends with automatic fallback: **Lyria RealTime** (Google's generative AI model) > **ElevenLabs Music** (text-prompt-based generation) > **Mock** (sine-wave additive synthesizer).
 
-https://github.com/user-attachments/assets/51ad4575-f225-4528-95fb-6483dad22734
+---
 
 ## Quick Start
 
 ```bash
-cd sonify
+# 1. Install Python dependencies
 pip install -r requirements.txt
+
+# 2. Start the server
 python server.py
+
+# 3. Open in your browser
+#    http://localhost:8000
+#    Click "Start Experience"
 ```
 
-Open **http://localhost:8000** and click **Start Experience**.
+Works immediately with the built-in mock audio synthesizer. No API keys needed.
 
-Works immediately with mock audio. For real AI-generated music, see [API Key Setup](#api-key-setup) below.
+For AI-generated music, see [API Key Setup](#api-key-setup) below.
+
+---
+
+## What It Does
+
+Every slider you move changes the underlying data, which changes the music and the visuals simultaneously:
+
+| Lens | Domain | Example Mapping |
+|------|--------|----------------|
+| **Atmosphere** | Weather | Wind speed -> tempo, temperature -> brightness, rain -> piano arpeggios |
+| **Pulse** | Cardiac | Heart rate -> BPM (1:1), stress -> minor key, arrhythmia -> glitch sounds |
+| **Lattice** | Mathematics | Lorenz chaos level -> tempo + density + scale + experimental prompts |
+| **Flow** | Network Traffic | Packet rate -> density, latency -> brightness (inverse), bursts -> tempo spike |
+
+All mappings are deterministic, monotone, and EMA-smoothed. The same data always produces the same sound. See `SCIENCE.md` for the full mathematical documentation.
+
+---
 
 ## API Key Setup
 
@@ -33,173 +56,190 @@ The app selects the best available backend automatically:
 
 | Priority | Backend | Key Required | What You Get |
 |----------|---------|-------------|--------------|
-| 1 | **Lyria RealTime** | `GOOGLE_API_KEY` with Vertex AI access | Real-time streaming with live control parameters |
+| 1 | **Lyria RealTime** | `GOOGLE_API_KEY` | Real-time streaming with live control parameters |
 | 2 | **ElevenLabs Music** | `ELEVENLABS_API_KEY` | 30-second AI-generated segments from text prompts |
-| 3 | **Mock (sine wave)** | None | Additive synth driven by the same ControlState |
+| 3 | **Mock (sine wave)** | None | Additive synth driven by 8 of 9 ControlState fields |
 
-- **Google API key:** Get one at https://aistudio.google.com/apikey. Uses the `lyria-realtime-exp` model. If Lyria fails to connect (e.g., no Vertex AI access), the app cascades to ElevenLabs.
-- **ElevenLabs API key:** Get one at https://elevenlabs.io. Uses the Music API with `pcm_48000` output format — raw PCM at 48kHz, no decoding needed.
-- **No keys:** Falls back to the mock sine-wave synthesizer.
+- **Google API key:** https://aistudio.google.com/apikey -- uses the `lyria-realtime-exp` model
+- **ElevenLabs API key:** https://elevenlabs.io -- uses the Music API with `pcm_48000` output
+- **No keys:** Falls back to the mock sine-wave synthesizer (still responds to BPM, density, brightness, scale, guidance, temperature, mute_bass, mute_drums)
+
+---
 
 ## Architecture
 
 ```
-Browser (index.html)
-  |-- Canvas visualizer (per-lens renderer)
-  |-- AudioWorklet (PCM playback from ring buffer)
-  |-- WebSocket client
-       |
-       | ws://localhost:8000/ws
-       |   text frames: {"viz": {...}, "controls": {...}}
-       |   binary frames: raw PCM audio (16-bit, 48kHz, stereo)
-       |
-Python Server (server.py)
-  |-- Tick loop (2-10 Hz depending on lens)
-  |-- Active Lens
-  |     |-- tick(t) -> domain data
-  |     |-- map(data) -> ControlState {bpm, density, brightness, scale, prompts, ...}
-  |     |-- viz_state(data) -> JSON for browser Canvas
-  |-- Audio Bridge (selected at startup)
-        |-- Lyria Bridge: diffs ControlState, streams live from Lyria
-        |-- ElevenLabs Bridge: converts ControlState to text prompt, generates 30s segments
-        |-- Mock fallback: sine-wave additive synth driven by same ControlState
++-------------------------------------------------------------------+
+|  BROWSER (static/index.html)                                      |
+|  +-------------------+  +-------------------+  +----------------+ |
+|  | UI Controls       |  | Canvas Renderer   |  | AudioWorklet   | |
+|  | (sidebar sliders)  |  | (4 lens-specific) |  | (PCM playback) | |
+|  +---------+---------+  +---------+---------+  +-------+--------+ |
+|            |                      |                     ^          |
+|            v                      |                     |          |
+|  +---------+----------------------+---------------------+--------+ |
+|  |             WebSocket Client (ws://host/ws)                   | |
+|  +------+-------------------------------------------------------+ |
++=========|=========================================================+
+          |  text: JSON {viz, controls}
+          |  binary: raw PCM (9600 bytes = 50ms)
+          |  client: JSON commands
++=========|=========================================================+
+|  PYTHON |SERVER (server.py)                                       |
+|  +------+---------+  +-----------+  +---------------------------+ |
+|  | Tick Loop       |  | Audio     |  | WebSocket Handler        | |
+|  | (2-10 Hz/lens)  |  | Loop      |  | (per-client coroutine)   | |
+|  +------+----------+  | (~50ms)   |  +---------------------------+ |
+|         |              +-----+-----+                               |
+|         v                    |                                     |
+|  +------+----------+  +-----+-----+                               |
+|  | Active Lens      |  | Audio     |                               |
+|  |  .tick(t)->data  |  | Bridge    |                               |
+|  |  .map(data)->ctrl|  |           |                               |
+|  |  .viz_state()->viz|  | Lyria /   |                               |
+|  +------------------+  | ElevenLabs|                               |
+|                        | / Mock    |                               |
+|                        +-----------+                               |
++===================================================================+
 ```
+
+### Data Flow Pipeline
+
+Every tick (2-10 Hz depending on lens):
+
+```
+Simulator.tick(t) -> domain data dict
+    -> Lens.map(data) -> ControlState (deterministic, EMA-smoothed, clamped)
+    -> Audio Bridge.update(controls) -> PCM audio chunks
+    -> Lens.viz_state(data) -> JSON for Canvas renderer
+    -> WebSocket broadcasts both to browser
+```
+
+The key invariant: **Lyria/ElevenLabs/Mock are always downstream** -- the generative model never decides meaning. All mappings are deterministic, monotone, and continuous.
+
+---
 
 ## File Structure
 
 ```
 sonify/
+  server.py                       # FastAPI + WebSocket hub + tick/audio loops
   pyproject.toml                  # Project metadata and dependencies
   requirements.txt                # pip install -r requirements.txt
-  .env.example                    # API key placeholders (Google + ElevenLabs)
-  server.py                       # FastAPI + WebSocket hub + tick loop + bridge factory
+  .env.example                    # API key placeholders
 
   lenses/
+    __init__.py                   # LENSES dict: name -> class
     base.py                       # ControlState dataclass + abstract Lens
-    atmosphere.py                 # Weather lens
-    pulse.py                      # Heart rate lens
-    lattice.py                    # Math function lens
-    flow.py                       # Network traffic lens
+    atmosphere.py                 # Weather -> music (wind=BPM, temp=brightness)
+    pulse.py                      # Cardiac -> music (HR=BPM 1:1, stress=key)
+    lattice.py                    # Math -> music (chaos=everything)
+    flow.py                       # Network -> music (packets=density)
 
-  lyria_bridge.py                 # Lyria session wrapper + mock fallback
-  elevenlabs_bridge.py            # ElevenLabs Music API bridge (text-prompt generation)
+  lyria_bridge.py                 # Lyria RealTime session + MockAudioGenerator
+  elevenlabs_bridge.py            # ElevenLabs Music API bridge
 
   data_sources/
     simulators.py                 # All 4 domain simulators (pure Python)
-    live_weather.py               # Open-Meteo fetcher (free, no key)
+    live_weather.py               # Open-Meteo API fetcher (free, no key)
 
   static/
-    index.html                    # Full frontend: UI + Canvas + AudioWorklet
+    index.html                    # Full frontend (HTML + CSS + JS, single file)
     worklet.js                    # AudioWorklet processor for PCM buffering
+
+  docs/
+    ARCHITECTURE.md               # Full architecture with ASCII diagrams
+    DEVELOPER_GUIDE.md            # Step-by-step guide for new developers
+    USER_GUIDE.md                 # User guide with 10 educational use cases
+    API_REFERENCE.md              # WebSocket protocol, ControlState, parameters
+
+  SCIENCE.md                      # Mathematical documentation of all mappings
+  CLAUDE.md                       # Instructions for AI coding assistants
 ```
+
+---
 
 ## The 4 Lenses
 
-| Lens | Data Source | Slider Parameters |
-|------|-----------|-------------------|
-| **Atmosphere** | Simulated weather (or live via Open-Meteo) | Storm Intensity, Season Shift |
-| **Pulse** | Simulated cardiac model | Exercise Level, Stress Level |
-| **Lattice** | Lorenz attractor / logistic map / sine waves | Chaos Parameter, Mode |
-| **Flow** | Simulated network traffic (Poisson process) | Network Load |
-
-## How Audio Correlates With Each Phenomenon
-
-The audio is **never independent** of the data. Every tick, the simulator produces domain values, the lens maps them to audio controls via deterministic formulas, and those controls drive the audio engine. The same data simultaneously drives both the visuals and the sound.
-
-The pipeline for every lens is:
-
-```
-Simulator generates data  -->  Lens.map() converts to ControlState  -->  Sent to audio engine
-```
-
 ### Atmosphere (Weather)
 
-| Simulator Value | Audio Control | Formula |
-|---|---|---|
-| `wind_speed` (0-100 m/s) | **BPM** | `70 + wind * 1.1` — gentle breeze = 70 bpm, gale = 180 bpm |
-| `temperature` (-10 to 40 C) | **Brightness** | `(temp + 10) / 50` — cold = dim/muted, hot = bright/sharp |
-| `humidity` (0-100%) | **Density** | `humidity / 100` — dry = sparse texture, humid = thick layers |
-| `rain_probability` (0-1) | **Prompts** | Rain > 0.3 adds "Piano arpeggios" weighted by rain value |
-| `wind > 60 AND rain > 0.5` | **Prompts** | Adds "Dirty synths, distortion, ominous drone" |
-| `temperature` | **Prompts** | < 5C: "Ethereal, cold, sustained chords"; > 30C: "Warm acoustic guitar" |
-| `storm_intensity` slider | Amplifies wind/rain | `wind * (1 + storm)`, `rain + storm * 0.3` |
+Maps five weather variables to musical parameters. Wind -> tempo, temperature -> brightness, humidity -> density, rain -> arpeggios + guidance, storm compound condition (wind > 20 AND rain > 0.5) -> distorted synths.
 
-**What you hear when Storm Intensity rises:** BPM climbs (wind increases), density thickens (humidity rises), piano arpeggios enter (rain crosses 0.3), and eventually distorted synths appear (wind > 60 + rain > 0.5). The particles on screen accelerate and rain drops appear from the same data.
+**Parameters:** Wind Speed (0-30 m/s), Temperature (-10 to 40 C), Humidity (0-100%), Rain Intensity (0-1), Pressure (980-1040 hPa).
+
+**Special feature:** Live Weather toggle fetches real data from Paris via Open-Meteo API.
 
 ### Pulse (Heart Rate)
 
-| Simulator Value | Audio Control | Formula |
-|---|---|---|
-| `heart_rate` (40-200 bpm) | **BPM** | **1:1 mapping** — `max(60, min(200, hr))`. The music literally beats with the heart. |
-| `hrv_sdnn_ms` (10-100 ms) | **Density** | `hrv / 80` — high variability = richer, more complex texture |
-| `exercise_level` (0-1) | **Brightness** | `0.3 + exercise * 0.6` — resting = warm/dim, exercising = bright/sharp |
-| `stress` (0-1) | **Scale** | < 0.5: C Major (consonant); > 0.5: Ab minor (tense) |
-| `stress` (0-1) | **Prompts** | Low: "Meditation, ambient"; mid: "Lo-fi hip hop"; high: "Tense, ominous drone" |
-| `arrhythmia` (bool) | **Prompts** | Adds "Glitchy effects, weird noises" on arrhythmia events |
+The most direct mapping: musical BPM = heart rate BPM (1:1). HRV drives density, stress drives key changes (C Major -> Ab Major/F minor), arrhythmias inject glitch prompts.
 
-**What you hear when Exercise Level rises:** Heart rate climbs, so BPM rises in lockstep. HRV drops (realistic physiology), so density increases. Brightness increases. Prompts shift from meditation to EDM. The ECG trace on screen speeds up at exactly the same rate.
+**Parameters:** Heart Rate (40-200), HRV (0-1), Stress (0-1), Arrhythmia Chance (0-0.2).
 
 ### Lattice (Mathematics)
 
-| Simulator Value | Audio Control | Formula |
-|---|---|---|
-| `amplitude` (0-1) | **Brightness** | Direct mapping — large attractor excursions = bright, near-origin = dim |
-| `chaos_level` (0-1) | **Density** | Direct mapping — periodic orbit = sparse, chaotic = dense |
-| `chaos_level` (0-1) | **BPM** | `80 + chaos * 80` — orderly = 80 bpm, chaotic = 160 bpm |
-| `chaos_level` (0-1) | **Scale** | < 0.3: C Major; 0.3-0.6: D Major; > 0.6: Gb Major (chromatic) |
-| `chaos_level` (0-1) | **Temperature** | `0.8 + chaos * 1.0` — more chaos = more Lyria randomness |
-| `chaos_level` (0-1) | **Prompts** | Low: "Piano, melodic, classical"; mid: "Jazz fusion"; high: "Glitchy, experimental" |
+Sonifies the Lorenz attractor, logistic map, or sine superposition. The chaos slider controls the Lorenz system's rho parameter (rho = 10 + 35 * chaos), driving a transition from orderly piano through jazz fusion to experimental glitch.
 
-The Chaos slider controls the Lorenz attractor's rho parameter (`rho = 10 + 35 * chaos`). The trajectory's variance is measured as `chaos_level`, and that single number drives BPM, density, scale, prompts, and temperature simultaneously.
-
-**What you hear when Chaos rises:** Ordered piano becomes frantic glitch-noise, perfectly synchronized with the attractor visuals going from a clean figure-eight to a wild scatter.
+**Parameters:** Chaos (0-1), Sigma (1-30), Beta (0.5-8), Speed (0.1-3), Mode (Lorenz/Logistic/Sine).
 
 ### Flow (Network Traffic)
 
-| Simulator Value | Audio Control | Formula |
-|---|---|---|
-| `packet_rate` (5-225/s) | **Density** | `packet_rate / 225` — idle network = thin, saturated = dense |
-| `latency_ms` (1-85 ms) | **Brightness** | `1.0 - latency / 85` — low latency = bright, high = dark/sluggish |
-| `is_burst` (bool) | **BPM** | Normal: `80 + load * 40`; Burst: adds +50 — sudden tempo spike |
-| `load_level` (0-1) | **Prompts** | Low: "Ambient, minimal"; mid: "Chiptune"; high: "Drum & Bass, intense" |
-| `is_burst` | **Prompts** | Adds "Huge drop, intense, crunchy distortion" |
-| `error_rate` (0-0.15) | **Prompts** | > 0.05 adds "Glitchy effects, metallic twang" weighted by `error_rate * 5` |
+Converts Poisson-process network traffic to music. Packet rate -> density, latency -> brightness (inverse), bursts -> +50 BPM spike + distortion, errors -> glitch prompts.
 
-**What you hear when a burst fires:** Packet rate spikes (density jumps), latency spikes (brightness drops), BPM jumps +50, a "Huge drop" prompt is injected. The node graph on screen turns red and pulses — all from the same `is_burst` flag.
+**Parameters:** Packet Rate (1-200/s), Latency (1-200 ms), Burst Active (0/1), Error Rate (0-0.2), Node Count (3-16).
 
-### ElevenLabs Music (Alternative Backend)
+---
 
-When running with an ElevenLabs key (and no Lyria access), the `ElevenLabsBridge` converts ControlState fields into a text prompt and generates 30-second audio segments. Key behaviors:
+## Mock Audio: What It Does
 
-- **Prompt building**: BPM → tempo descriptor, density → arrangement descriptor, brightness → tonal descriptor, scale → key/mood text, mute flags → "no bass"/"no drums", temperature → "experimental"/"structured". All lens text prompts are included.
-- **Debounced regeneration**: Slider changes are debounced (2s) to avoid spamming the API. The current segment always finishes playing; new audio is generated in the background.
-- **Gapless playback**: Segments loop continuously. When a new prompt is committed, the next segment uses the updated prompt with no audio gap.
-- **PCM output**: Uses `output_format="pcm_48000"` — raw 16-bit PCM at 48kHz, identical to the browser AudioWorklet format.
+The mock synthesizer applies 8 of 9 ControlState fields (everything except `prompts`, which requires a generative AI model to interpret natural language):
 
-### Mock Audio (No API Key)
+| Field | Mock Effect |
+|-------|-------------|
+| `bpm` | LFO rate (rhythmic pulse at beat rate) |
+| `brightness` | Base pitch 110-440 Hz, quantized to scale |
+| `density` | Harmonic count (1-6 overtones) |
+| `scale` | Pitch snapping to scale tones (equal temperament) |
+| `guidance` | LFO depth and regularity |
+| `temperature` | Gaussian noise floor (0-15%) |
+| `mute_bass` | Removes fundamental + 2nd harmonic |
+| `mute_drums` | Suppresses LFO rhythmic pulsing |
+| `prompts` | **Not applied** (requires generative AI) |
 
-When running without any API key, the `MockAudioGenerator` receives the **exact same ControlState** and applies 8 of 9 fields:
-
-| ControlState Field | Mock Audio Effect |
-|---|---|
-| `bpm` | **Rhythmic pulsing**: LFO rate = `bpm / 60` Hz — volume pulses at the beat rate |
-| `brightness` | **Pitch**: `110 + brightness * 330` Hz (then quantized to active scale) |
-| `density` | **Harmonic richness**: `1 + density * 5` overtones — sparse = pure sine, dense = rich harmonics |
-| `scale` | **Pitch quantization**: snaps frequency to nearest note in the active scale (equal temperament) |
-| `guidance` | **LFO regularity**: high guidance = deep metronomic pulse, low = shallow erratic wobble |
-| `temperature` | **Noise floor**: adds Gaussian noise proportional to temperature (0 = pure, 3 = noisy) |
-| `mute_bass` | **Harmonic filter**: removes fundamental + 2nd harmonic (thins the sound) |
-| `mute_drums` | **LFO bypass**: disables rhythmic pulsing entirely (sustained drone) |
-| `prompts` | **Not applied** — requires a generative AI model to interpret natural language |
-
-The mock synth covers almost all control dimensions. When the Pulse lens shifts from C Major to Ab Major under stress, you hear the pitch snap to different scale tones. When chaos rises in the Lattice lens, guidance drops and the rhythmic pulse becomes erratic while the noise floor increases. Only the textual prompts (e.g., "Piano arpeggios" or "Glitchy effects") have no audible effect — these are a Lyria-only feature.
+---
 
 ## Design Principles
 
-1. **Lyria is downstream** — the model never decides meaning. Deterministic mappers control everything.
-2. **Monotone mappings** — higher wind = higher BPM, always. Makes sonification learnable.
-3. **Perceptual stability** — exponential moving average smoothing on all inputs prevents jarring transitions.
-4. **All controls clamped** to Lyria's valid ranges (BPM 60-200, density 0-1, brightness 0-1, guidance 0-6).
+1. **Lyria is downstream** -- the model never decides meaning. Deterministic mappers control everything.
+2. **Monotone mappings** -- higher wind = higher BPM, always. Makes sonification learnable.
+3. **Perceptual stability** -- EMA smoothing on all inputs prevents jarring transitions. Cutoff ~0.13 Hz with alpha=0.15 at 5 Hz tick rate.
+4. **All controls clamped** to valid ranges (BPM 60-200, density 0-1, brightness 0-1, guidance 0-6, temperature 0-3).
+
+---
+
+## Configuration
+
+| Environment Variable | Purpose | Default |
+|---------------------|---------|---------|
+| `GOOGLE_API_KEY` | Lyria RealTime backend | None (mock fallback) |
+| `ELEVENLABS_API_KEY` | ElevenLabs Music backend | None (mock fallback) |
+| `PORT` | Server port | 8000 |
+
+Set in `.env` file or as environment variables.
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture with ASCII diagrams at multiple abstraction levels |
+| [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | Step-by-step guide for developers new to web app development |
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | User guide with 10 educational use cases |
+| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | WebSocket protocol, ControlState fields, lens parameters |
+| [SCIENCE.md](SCIENCE.md) | Mathematical documentation of all transfer functions and models |
+| [CLAUDE.md](CLAUDE.md) | Instructions for AI coding assistants |
+
+---
 
 ## Troubleshooting
 
@@ -207,9 +247,17 @@ The mock synth covers almost all control dimensions. When the Pulse lens shifts 
 |-------|-----|
 | No sound after clicking Start | Click anywhere on the page first (browser autoplay policy) |
 | `ModuleNotFoundError` | Run `pip install -r requirements.txt` |
-| Port 8000 in use | `set PORT=8001 && python server.py` |
+| Port 8000 in use | `PORT=8001 python server.py` |
 | Lyria connection fails | App cascades to ElevenLabs (if key set), then to mock audio |
-| ElevenLabs audio delay | First segment takes ~5-15s to generate. Subsequent segments are gapless. |
+| ElevenLabs audio delay | First segment takes 5-15s to generate. Subsequent segments are gapless. |
 | Audio stops when moving sliders | Prompt changes are debounced (2s). Current segment finishes before new one starts. |
-| Badge shows "Mock Audio" despite keys set | Check that key names in `.env` match exactly: `GOOGLE_API_KEY`, `ELEVENLABS_API_KEY` |
+| Badge shows "Mock Audio" despite keys | Check key names in `.env` match exactly: `GOOGLE_API_KEY`, `ELEVENLABS_API_KEY` |
 | Live Weather not working | Toggle "Live Weather" in the Atmosphere lens sidebar. Requires internet. |
+
+---
+
+## Requirements
+
+- Python 3.10+
+- Modern web browser (Chrome, Firefox, or Edge)
+- No build tools, no npm, no webpack -- just Python and a browser
