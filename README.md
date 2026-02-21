@@ -2,7 +2,9 @@
 
 > *Hear what numbers hide. See what sound reveals.*
 
-A browser-based platform that maps abstract data through deterministic pipelines into real-time music (via Google's Lyria 3) and synchronized Canvas visualizations. Four interchangeable "lenses" each sonify a different domain: weather, cardiac activity, mathematical attractors, and network traffic.
+A browser-based platform that maps abstract data through deterministic pipelines into real-time music and synchronized Canvas visualizations. Four interchangeable "lenses" each sonify a different domain: weather, cardiac activity, mathematical attractors, and network traffic.
+
+Supports three audio backends with automatic fallback: **Lyria RealTime** (Google's generative model) → **ElevenLabs Music** (text-prompt-based generation) → **Mock** (sine-wave synth).
 
 https://github.com/user-attachments/assets/51ad4575-f225-4528-95fb-6483dad22734
 
@@ -20,15 +22,24 @@ Works immediately with mock audio. For real AI-generated music, see [API Key Set
 
 ## API Key Setup
 
-1. Go to https://aistudio.google.com/apikey
-2. Sign in and click **Create API key**
-3. Copy `.env.example` to `.env` and paste your key:
+Copy `.env.example` to `.env` and add one or both keys:
 
 ```
-GOOGLE_API_KEY=AIzaSy...your-key
+GOOGLE_API_KEY=your-google-key
+ELEVENLABS_API_KEY=your-elevenlabs-key
 ```
 
-The app uses the `lyria-realtime-exp` model. If your key doesn't have access, the app falls back to mock audio automatically.
+The app selects the best available backend automatically:
+
+| Priority | Backend | Key Required | What You Get |
+|----------|---------|-------------|--------------|
+| 1 | **Lyria RealTime** | `GOOGLE_API_KEY` with Vertex AI access | Real-time streaming with live control parameters |
+| 2 | **ElevenLabs Music** | `ELEVENLABS_API_KEY` | 30-second AI-generated segments from text prompts |
+| 3 | **Mock (sine wave)** | None | Additive synth driven by the same ControlState |
+
+- **Google API key:** Get one at https://aistudio.google.com/apikey. Uses the `lyria-realtime-exp` model. If Lyria fails to connect (e.g., no Vertex AI access), the app cascades to ElevenLabs.
+- **ElevenLabs API key:** Get one at https://elevenlabs.io. Uses the Music API with `pcm_48000` output format — raw PCM at 48kHz, no decoding needed.
+- **No keys:** Falls back to the mock sine-wave synthesizer.
 
 ## Architecture
 
@@ -48,10 +59,10 @@ Python Server (server.py)
   |     |-- tick(t) -> domain data
   |     |-- map(data) -> ControlState {bpm, density, brightness, scale, prompts, ...}
   |     |-- viz_state(data) -> JSON for browser Canvas
-  |-- Lyria Bridge (lyria_bridge.py)
-        |-- Diffs ControlState, sends only changes to Lyria
-        |-- Forwards PCM audio chunks to WebSocket
-        |-- Falls back to sine-wave mock when no API key
+  |-- Audio Bridge (selected at startup)
+        |-- Lyria Bridge: diffs ControlState, streams live from Lyria
+        |-- ElevenLabs Bridge: converts ControlState to text prompt, generates 30s segments
+        |-- Mock fallback: sine-wave additive synth driven by same ControlState
 ```
 
 ## File Structure
@@ -60,8 +71,8 @@ Python Server (server.py)
 sonify/
   pyproject.toml                  # Project metadata and dependencies
   requirements.txt                # pip install -r requirements.txt
-  .env.example                    # GOOGLE_API_KEY placeholder
-  server.py                       # FastAPI + WebSocket hub + tick loop
+  .env.example                    # API key placeholders (Google + ElevenLabs)
+  server.py                       # FastAPI + WebSocket hub + tick loop + bridge factory
 
   lenses/
     base.py                       # ControlState dataclass + abstract Lens
@@ -71,6 +82,7 @@ sonify/
     flow.py                       # Network traffic lens
 
   lyria_bridge.py                 # Lyria session wrapper + mock fallback
+  elevenlabs_bridge.py            # ElevenLabs Music API bridge (text-prompt generation)
 
   data_sources/
     simulators.py                 # All 4 domain simulators (pure Python)
@@ -155,9 +167,18 @@ The Chaos slider controls the Lorenz attractor's rho parameter (`rho = 10 + 35 *
 
 **What you hear when a burst fires:** Packet rate spikes (density jumps), latency spikes (brightness drops), BPM jumps +50, a "Huge drop" prompt is injected. The node graph on screen turns red and pulses — all from the same `is_burst` flag.
 
+### ElevenLabs Music (Alternative Backend)
+
+When running with an ElevenLabs key (and no Lyria access), the `ElevenLabsBridge` converts ControlState fields into a text prompt and generates 30-second audio segments. Key behaviors:
+
+- **Prompt building**: BPM → tempo descriptor, density → arrangement descriptor, brightness → tonal descriptor, scale → key/mood text, mute flags → "no bass"/"no drums", temperature → "experimental"/"structured". All lens text prompts are included.
+- **Debounced regeneration**: Slider changes are debounced (2s) to avoid spamming the API. The current segment always finishes playing; new audio is generated in the background.
+- **Gapless playback**: Segments loop continuously. When a new prompt is committed, the next segment uses the updated prompt with no audio gap.
+- **PCM output**: Uses `output_format="pcm_48000"` — raw 16-bit PCM at 48kHz, identical to the browser AudioWorklet format.
+
 ### Mock Audio (No API Key)
 
-When running without Lyria, the `MockAudioGenerator` receives the **exact same ControlState** and applies 8 of 9 fields:
+When running without any API key, the `MockAudioGenerator` receives the **exact same ControlState** and applies 8 of 9 fields:
 
 | ControlState Field | Mock Audio Effect |
 |---|---|
@@ -187,5 +208,8 @@ The mock synth covers almost all control dimensions. When the Pulse lens shifts 
 | No sound after clicking Start | Click anywhere on the page first (browser autoplay policy) |
 | `ModuleNotFoundError` | Run `pip install -r requirements.txt` |
 | Port 8000 in use | `set PORT=8001 && python server.py` |
-| Lyria connection fails | App auto-falls back to mock audio. Check API key validity. |
+| Lyria connection fails | App cascades to ElevenLabs (if key set), then to mock audio |
+| ElevenLabs audio delay | First segment takes ~5-15s to generate. Subsequent segments are gapless. |
+| Audio stops when moving sliders | Prompt changes are debounced (2s). Current segment finishes before new one starts. |
+| Badge shows "Mock Audio" despite keys set | Check that key names in `.env` match exactly: `GOOGLE_API_KEY`, `ELEVENLABS_API_KEY` |
 | Live Weather not working | Toggle "Live Weather" in the Atmosphere lens sidebar. Requires internet. |

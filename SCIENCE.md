@@ -26,15 +26,15 @@ these mappings must be:
    are reserved for genuine discontinuities in the data (e.g., arrhythmia events,
    network bursts).
 
-3. **Deterministic** --- the same data always produces the same sound. The generative
-   model (Lyria or the mock synthesizer) is downstream of the mapping; it receives
-   control parameters but never decides what those parameters mean.
+3. **Deterministic** --- the same data always produces the same sound. The audio
+   engine (Lyria, ElevenLabs, or the mock synthesizer) is downstream of the mapping;
+   it receives control parameters but never decides what those parameters mean.
 
 The mathematical pipeline for every lens is:
 
 ```
 x(t)  --->  f: R^n -> R^m  --->  EMA_alpha  --->  clamp  --->  audio engine
-data        lens.map()          smoothing       valid ranges    Lyria / mock
+data        lens.map()          smoothing       valid ranges    Lyria / ElevenLabs / mock
 ```
 
 where `x(t)` is the domain state vector at time `t`, `f` is the deterministic transfer
@@ -765,8 +765,8 @@ The prompt progression follows this gradient:
 
 ## 7. Mock Audio Engine: Additive Synthesis Driven by ControlState
 
-When no Lyria API key is available, the `MockAudioGenerator` provides a rule-based
-synthesizer that receives the **exact same ControlState** as Lyria. Of the 9 fields in
+When neither Lyria nor ElevenLabs is available, the `MockAudioGenerator` provides a
+rule-based synthesizer that receives the **exact same ControlState**. Of the 9 fields in
 ControlState, the mock engine applies 8. Only `prompts` is dropped --- it requires a
 generative AI model to interpret natural language and no rule-based synth can replicate
 that capability. This section is explicit about what is and is not applied.
@@ -964,7 +964,92 @@ loss of significant digits that would cause pitch drift in a long-running sessio
 
 ---
 
-## 8. Audio Transport: PCM Streaming Architecture
+## 8. ElevenLabs Bridge: Batch Generation from ControlState
+
+### 8.1 Architectural Differences from Lyria
+
+Lyria RealTime is a streaming session: the server pushes control parameter updates and
+receives a continuous PCM audio stream with ~50ms latency. The audio adapts in real time
+to parameter changes.
+
+The ElevenLabs Music API is fundamentally different: it accepts a text prompt and a
+duration, then returns a complete audio segment. There are no live control knobs. This
+means the bridge must:
+
+1. **Convert ControlState to text** — translate numeric parameters into natural language
+   descriptors that the Music API can interpret.
+2. **Generate in segments** — produce 30-second audio blocks and queue them for playback.
+3. **Debounce parameter changes** — avoid aborting generation on every slider tick.
+
+### 8.2 Prompt Construction: ControlState to Natural Language
+
+The `_build_prompt()` method maps each ControlState field to a descriptive text fragment:
+
+| ControlState Field | Prompt Fragment | Thresholds |
+|---|---|---|
+| `prompts` | Lens text prompts (sorted by weight) | All included |
+| `bpm` | "slow tempo" / "moderate" / "upbeat" / "fast energetic" | <80 / <110 / <140 / >=140 |
+| `density` | "sparse minimal arrangement" / "dense layered arrangement" | <0.3 / >0.7 |
+| `brightness` | "dark muted tones" / "bright shimmering tones" | <0.3 / >0.7 |
+| `scale` | Key + mood text (e.g., "C major, uplifting mood") | Exact match |
+| `mute_bass` | "no bass" | Boolean |
+| `mute_drums` | "no drums" | Boolean |
+| `temperature` | "experimental, unconventional" / "structured, predictable" | >2.0 / <0.5 |
+
+The fragments are joined with commas and "instrumental" is always appended to suppress
+vocals. Mid-range values (e.g., density between 0.3 and 0.7) produce no descriptor,
+letting the model choose a neutral arrangement.
+
+**Design tradeoff:** The threshold-based mapping intentionally uses coarse buckets rather
+than continuous interpolation. A density change from 0.45 to 0.55 produces the same
+prompt (no descriptor for either), avoiding unnecessary regeneration. Only crossing a
+bucket boundary (e.g., density rising above 0.7) changes the prompt and triggers new
+generation.
+
+### 8.3 Debounce and Gapless Playback
+
+The critical engineering challenge is maintaining gapless audio while allowing parameter
+changes. The solution uses three mechanisms:
+
+**Debounced prompt commits (2 seconds):** When `update()` receives new controls, it
+records the pending prompt and a timestamp. The generation loop only commits the new
+prompt after 2 seconds of no further changes. This absorbs slider drags (which fire at
+5Hz) into a single regeneration event.
+
+**Never abort mid-segment:** Once a segment starts queuing its PCM chunks to the audio
+queue, it always finishes. The generation loop checks for debounced prompt changes only
+*between* segments, not during chunk queuing. This ensures the current 30-second segment
+plays to completion.
+
+**Generation counter:** A monotonic counter (`_gen_id`) is incremented on `reset()`
+(lens switch). If an API call returns after a reset, the stale response is discarded by
+comparing the counter value captured before the call to the current value.
+
+The resulting timeline for a slider change:
+
+```
+t=0s    User starts dragging slider
+t=0-2s  Prompt changes accumulate (debounce timer resets on each change)
+t=2s    User stops. Debounce timer expires. Prompt committed.
+t=2s    Current segment continues playing (no interruption)
+t=Xs    Current segment ends. New segment generated with updated prompt.
+t=X+5s  New segment arrives, begins queuing. Gapless transition.
+```
+
+### 8.4 PCM Format Compatibility
+
+The ElevenLabs Music API supports `output_format="pcm_48000"` which returns raw 16-bit
+signed little-endian PCM at 48kHz. This is the exact format expected by the browser's
+AudioWorklet processor — no MP3 decoding, resampling, or format conversion is needed.
+
+The bridge detects mono output (by checking if sample count is odd or if byte alignment
+matches mono frame size) and duplicates channels to stereo when necessary. The audio is
+then split into 9600-byte chunks (2400 stereo frames = 50ms), matching the mock
+generator's chunk geometry.
+
+---
+
+## 9. Audio Transport: PCM Streaming Architecture
 
 ### 8.1 Sample Format
 
@@ -991,7 +1076,7 @@ data, preventing the jarring "stuck record" artifact.
 
 ---
 
-## 9. Summary of Transfer Functions
+## 10. Summary of Transfer Functions
 
 For reference, every deterministic mapping in the system:
 
