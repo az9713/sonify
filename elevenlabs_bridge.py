@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import struct
+import time
 from functools import partial
 
 from lenses.base import ControlState
@@ -17,6 +18,12 @@ class ElevenLabsBridge:
     Converts ControlState fields into a text prompt, generates 30-second
     segments, and queues raw PCM chunks for streaming.  Falls back to
     MockAudioGenerator when no API key is set or on connection failure.
+
+    Key design choices for gapless playback:
+    - Prompt changes are debounced (2s) so slider drags don't spam the API.
+    - Current segment always finishes queuing; new audio is prepared in the
+      background and swapped in seamlessly.
+    - A generation counter lets us discard stale API responses.
     """
 
     # Chunk geometry — matches mock: 2400 stereo frames @ 48 kHz = 50 ms
@@ -24,6 +31,8 @@ class ElevenLabsBridge:
     _CHANNELS = 2
     _BYTES_PER_SAMPLE = 2  # 16-bit
     _CHUNK_BYTES = _FRAMES_PER_CHUNK * _CHANNELS * _BYTES_PER_SAMPLE  # 9600
+
+    _DEBOUNCE_SECONDS = 2.0  # Wait for sliders to settle before regenerating
 
     def __init__(self) -> None:
         self._api_key = os.environ.get("ELEVENLABS_API_KEY", "")
@@ -34,10 +43,13 @@ class ElevenLabsBridge:
 
         self._audio_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=200)
         self._current_prompt: str = ""
-        self._prompt_changed = asyncio.Event()
+        self._committed_prompt: str = ""  # The prompt currently generating/playing
+        self._last_prompt_change: float = 0.0
+        self._pending_prompt: str = ""  # Waiting for debounce to commit
         self._stop_event = asyncio.Event()
         self._generation_task: asyncio.Task | None = None
         self._segment_length_ms = 30_000
+        self._gen_id: int = 0  # Monotonic counter to discard stale results
 
         # Exponential backoff state
         self._backoff = 2.0
@@ -79,7 +91,8 @@ class ElevenLabsBridge:
         new_prompt = self._build_prompt(controls)
         if new_prompt != self._current_prompt:
             self._current_prompt = new_prompt
-            self._prompt_changed.set()
+            self._pending_prompt = new_prompt
+            self._last_prompt_change = time.monotonic()
 
     async def get_audio_chunk(self) -> bytes | None:
         if self._use_mock:
@@ -92,6 +105,9 @@ class ElevenLabsBridge:
 
     async def reset(self) -> None:
         self._current_prompt = ""
+        self._committed_prompt = ""
+        self._pending_prompt = ""
+        self._gen_id += 1  # Invalidate any in-flight generation
         # Drain the queue
         while not self._audio_queue.empty():
             try:
@@ -122,7 +138,7 @@ class ElevenLabsBridge:
             for p in sorted_prompts:
                 parts.append(p.get("text", ""))
 
-        # BPM → tempo descriptor
+        # BPM -> tempo descriptor
         bpm = controls.bpm
         if bpm < 80:
             parts.append("slow tempo")
@@ -133,19 +149,19 @@ class ElevenLabsBridge:
         else:
             parts.append("fast energetic tempo")
 
-        # Density → arrangement
+        # Density -> arrangement
         if controls.density < 0.3:
             parts.append("sparse minimal arrangement")
         elif controls.density > 0.7:
             parts.append("dense layered arrangement")
 
-        # Brightness → tone
+        # Brightness -> tone
         if controls.brightness < 0.3:
             parts.append("dark muted tones")
         elif controls.brightness > 0.7:
             parts.append("bright shimmering tones")
 
-        # Scale → key / mood
+        # Scale -> key / mood
         scale_map = {
             "C_MAJOR_A_MINOR": "C major, uplifting mood",
             "D_MAJOR_B_MINOR": "D major, bright joyful mood",
@@ -161,7 +177,7 @@ class ElevenLabsBridge:
         if controls.mute_drums:
             parts.append("no drums")
 
-        # Temperature → experimental vs structured
+        # Temperature -> experimental vs structured
         if controls.temperature > 2.0:
             parts.append("experimental, unconventional")
         elif controls.temperature < 0.5:
@@ -173,38 +189,67 @@ class ElevenLabsBridge:
 
     # ── generation loop ─────────────────────────────────────────────────
 
+    def _should_regenerate(self) -> bool:
+        """Check if a debounced prompt change is ready to commit."""
+        if not self._pending_prompt:
+            return False
+        if self._pending_prompt == self._committed_prompt:
+            self._pending_prompt = ""
+            return False
+        elapsed = time.monotonic() - self._last_prompt_change
+        return elapsed >= self._DEBOUNCE_SECONDS
+
     async def _generation_loop(self) -> None:
-        """Continuously generate audio segments while a prompt exists."""
+        """Continuously generate audio segments.
+
+        - On first prompt: generate immediately (no debounce).
+        - On subsequent changes: wait for debounce, then generate.
+        - Always finishes queuing the current segment before starting a new one.
+        - Loops to generate continuous 30s segments with the same prompt.
+        """
         try:
             while not self._stop_event.is_set():
-                # Wait until we have a prompt
-                if not self._current_prompt:
-                    try:
-                        await asyncio.wait_for(self._prompt_changed.wait(), timeout=1.0)
-                    except asyncio.TimeoutError:
-                        continue
-                    self._prompt_changed.clear()
+                # Phase 1: wait for *any* prompt to exist
+                if not self._committed_prompt and not self._pending_prompt:
+                    await asyncio.sleep(0.2)
                     continue
 
-                self._prompt_changed.clear()
-                prompt = self._current_prompt
+                # First prompt — commit immediately (no debounce)
+                if not self._committed_prompt and self._pending_prompt:
+                    self._committed_prompt = self._pending_prompt
+                    self._pending_prompt = ""
+                    print(f"[ElevenLabsBridge] Initial prompt: {self._committed_prompt[:80]}...")
 
-                await self._generate_segment(prompt)
+                # Phase 2: generate a segment with the committed prompt
+                gen_id = self._gen_id
+                await self._generate_segment(self._committed_prompt, gen_id)
 
-                # If prompt didn't change during generation, wait briefly
-                # then loop for continuous playback
-                if not self._prompt_changed.is_set():
-                    try:
-                        await asyncio.wait_for(self._prompt_changed.wait(), timeout=1.0)
-                    except asyncio.TimeoutError:
-                        pass  # Generate another segment with same prompt
+                # Phase 3: check if a new prompt is ready (debounced)
+                if self._should_regenerate():
+                    self._committed_prompt = self._pending_prompt
+                    self._pending_prompt = ""
+                    print(f"[ElevenLabsBridge] Prompt updated: {self._committed_prompt[:80]}...")
+                    continue  # Generate immediately with new prompt
+
+                # Phase 4: no change — wait a bit, then loop for continuous playback
+                # During this wait, check periodically for debounced prompt changes
+                waited = 0.0
+                while waited < 1.0 and not self._stop_event.is_set():
+                    await asyncio.sleep(0.2)
+                    waited += 0.2
+                    if self._should_regenerate():
+                        self._committed_prompt = self._pending_prompt
+                        self._pending_prompt = ""
+                        print(f"[ElevenLabsBridge] Prompt updated: {self._committed_prompt[:80]}...")
+                        break
+
         except asyncio.CancelledError:
             pass
         except Exception as e:
             print(f"[ElevenLabsBridge] Generation loop error: {e}")
 
-    async def _generate_segment(self, prompt: str) -> None:
-        """Call ElevenLabs Music API and queue PCM chunks."""
+    async def _generate_segment(self, prompt: str, gen_id: int) -> None:
+        """Call ElevenLabs Music API and queue ALL PCM chunks (never abort mid-segment)."""
         try:
             loop = asyncio.get_running_loop()
 
@@ -217,16 +262,16 @@ class ElevenLabsBridge:
             if raw_pcm is None:
                 return
 
+            # Stale generation — a reset() happened while we were in the API call
+            if gen_id != self._gen_id:
+                return
+
             # Reset backoff on success
             self._backoff = 2.0
 
-            # Detect mono vs stereo.  The API returns pcm_48000 which is
-            # 16-bit signed LE.  If total samples is odd relative to
-            # stereo frame expectation, treat as mono and duplicate.
+            # Detect mono vs stereo
             total_samples = len(raw_pcm) // self._BYTES_PER_SAMPLE
             is_mono = (total_samples % 2 != 0) or (
-                # Heuristic: if byte count matches exactly N mono frames
-                # rather than N stereo frames, duplicate channels
                 len(raw_pcm) % (self._FRAMES_PER_CHUNK * self._BYTES_PER_SAMPLE) == 0
                 and len(raw_pcm) % self._CHUNK_BYTES != 0
             )
@@ -234,10 +279,11 @@ class ElevenLabsBridge:
             if is_mono:
                 raw_pcm = self._mono_to_stereo(raw_pcm)
 
-            # Split into chunks and queue with pacing
+            # Queue ALL chunks — never abort mid-segment.
+            # This ensures gapless playback while next segment generates.
             offset = 0
             while offset + self._CHUNK_BYTES <= len(raw_pcm):
-                if self._prompt_changed.is_set() or self._stop_event.is_set():
+                if self._stop_event.is_set() or gen_id != self._gen_id:
                     break
 
                 chunk = raw_pcm[offset : offset + self._CHUNK_BYTES]

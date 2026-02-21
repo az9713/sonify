@@ -38,9 +38,19 @@ def create_bridge():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global tick_task, audio_task, active_lens
+    global tick_task, audio_task, active_lens, bridge
     active_lens = create_lens(active_lens_name)
     await bridge.connect()
+
+    # Cascade: if Lyria failed to mock but an ElevenLabs key exists, try that
+    if (bridge.is_mock
+            and isinstance(bridge, LyriaBridge)
+            and os.environ.get("ELEVENLABS_API_KEY")):
+        print("[Startup] Lyria unavailable, trying ElevenLabs...")
+        await bridge.disconnect()
+        bridge = ElevenLabsBridge()
+        await bridge.connect()
+
     tick_task = asyncio.create_task(tick_loop())
     audio_task = asyncio.create_task(audio_loop())
     if bridge.is_mock:
