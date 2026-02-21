@@ -6,6 +6,8 @@ Sonify is a browser-based data sonification platform that converts abstract data
 
 Three audio backends with automatic fallback: **Lyria RealTime** (Google's generative AI model) > **ElevenLabs Music** (text-prompt-based generation) > **Mock** (sine-wave additive synthesizer).
 
+> **Note:** The demo video in the [original README](https://github.com/az9713/sonify/tree/bbb933a) shows the pre-redesign UI. The frontend has since been overhauled with an industrial-scientific laboratory aesthetic (phosphor green accents, CRT scanline effects, segmented meter bars). All functionality remains identical.
+
 ---
 
 ## Quick Start
@@ -253,6 +255,43 @@ Set in `.env` file or as environment variables.
 | Audio stops when moving sliders | Prompt changes are debounced (2s). Current segment finishes before new one starts. |
 | Badge shows "Mock Audio" despite keys | Check key names in `.env` match exactly: `GOOGLE_API_KEY`, `ELEVENLABS_API_KEY` |
 | Live Weather not working | Toggle "Live Weather" in the Atmosphere lens sidebar. Requires internet. |
+
+---
+
+## Testing
+
+The project includes a comprehensive pytest test suite with 272 tests. Run with:
+
+```bash
+python -m pytest tests/ -v
+```
+
+Test modules:
+
+| Module | Tests | What It Covers |
+|--------|-------|----------------|
+| `test_control_state.py` | 58 | Default values, `clamped()` range enforcement, `diff()` dead-zone thresholds |
+| `test_lenses.py` | 72 | All 4 lenses: monotone mapping invariants, EMA smoothing, prompt generation, scale selection, update output clamping |
+| `test_simulators.py` | 47 | All simulators: value ranges over 500 ticks, seed determinism, Lorenz chaos metric, Poisson variate correctness, burst logic |
+| `test_mock_audio.py` | 22 | PCM format (9600 bytes/chunk, 16-bit signed range), scale quantization to all Lyria scales, all 8 ControlState field mappings |
+| `test_elevenlabs_bridge.py` | 39 | `_build_prompt()` threshold behavior for all fields, prompt weight sorting, mono-to-stereo conversion, debounce constants |
+| `test_server.py` | 17 | HTTP endpoints, WebSocket init/switch_lens/set_param/pause/play/toggle_live, helper functions |
+
+---
+
+## Development History
+
+The frontend redesign, test suite, and documentation were developed simultaneously using three Claude Code agents running in parallel, each in an isolated git worktree:
+
+| Agent | Task | Output |
+|-------|------|--------|
+| **Frontend** | Redesigned `static/index.html` using the `frontend-design` skill | Industrial-scientific laboratory aesthetic with phosphor green accents, CRT scanline overlay, DM Mono typography, segmented meter bars, 2x2 lens grid. All 16 original features preserved identically. |
+| **TDD** | Created a comprehensive pytest test suite from scratch | 272 tests across 7 modules covering ControlState, all 4 lenses, all simulators, MockAudioGenerator, ElevenLabs prompt builder, and server endpoints. Zero modifications to existing source code. |
+| **Documentation** | Wrote full documentation suite | README.md, CLAUDE.md, and 4 docs (ARCHITECTURE.md with ASCII diagrams, DEVELOPER_GUIDE.md for C/Java developers, USER_GUIDE.md with 10 use cases, API_REFERENCE.md with WebSocket protocol and transfer functions). |
+
+The worktree isolation ensured each agent could work independently without merge conflicts on the main codebase. All three branches were merged into main after completion.
+
+This is why the demo video (recorded before the redesign) shows the original UI, while the current application uses the new industrial-scientific design.
 
 ---
 

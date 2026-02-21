@@ -98,6 +98,21 @@ Set in `.env` (copied from `.env.example`):
 
 No keys = mock sine-wave synth (still responds to 8 of 9 ControlState fields).
 
+## Testing
+
+272 pytest tests covering all modules. Run with:
+
+```bash
+python -m pytest tests/ -v
+```
+
+- `test_control_state.py` (58) -- defaults, clamped() ranges, diff() dead-zones
+- `test_lenses.py` (72) -- monotone mappings, EMA, prompt generation, scale selection
+- `test_simulators.py` (47) -- value ranges, chaos metrics, Poisson, burst logic
+- `test_mock_audio.py` (22) -- PCM format, scale quantization, all 8 field mappings
+- `test_elevenlabs_bridge.py` (39) -- prompt thresholds, weight sorting, mono-to-stereo
+- `test_server.py` (17) -- HTTP endpoints, WebSocket message handling
+
 ## File Map
 
 ```
