@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synaesthesia Engine</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2e;
+    --text: #e0e0e8;
+    --text-dim: #888899;
+    --accent: #7c5cfc;
+    --accent-glow: #7c5cfc44;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    z-index: 10;
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  header h1 span {
+    color: var(--accent);
+    font-weight: 300;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .badge {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    background: #1a3a2a;
+    color: #4ade80;
+  }
+
+  .badge.mock {
+    background: #3a2a1a;
+    color: #fbbf24;
+  }
+
+  /* Play/Pause button */
+  .play-pause-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: transparent;
+    border: 1.5px solid var(--border);
+    border-radius: 50%;
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  .play-pause-btn:hover {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+    color: var(--accent);
+  }
+
+  .play-pause-btn.playing {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* ── Main layout ── */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .sidebar section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+
+  /* Lens selector */
+  .lens-btn {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .lens-btn:hover { border-color: var(--accent); background: var(--accent-glow); }
+  .lens-btn.active { border-color: var(--accent); background: var(--accent-glow); }
+
+  .lens-btn .lens-name { font-weight: 600; }
+  .lens-btn .lens-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  /* Sliders */
+  .param-group { margin-bottom: 12px; }
+
+  .param-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+
+  .param-value { color: var(--accent); font-weight: 600; }
+
+  input[type="range"] {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
+
+  /* Toggle */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+  }
+
+  .toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    cursor: pointer;
+  }
+
+  .toggle input { display: none; }
+
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--border);
+    border-radius: 10px;
+    transition: background 0.2s;
+  }
+
+  .toggle input:checked + .toggle-track { background: var(--accent); }
+
+  .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+    pointer-events: none;
+  }
+
+  .toggle input:checked ~ .toggle-knob { transform: translateX(16px); }
+
+  /* Controls readout */
+  .control-bar {
+    display: flex;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+
+  .control-bar .label {
+    width: 70px;
+    color: var(--text-dim);
+  }
+
+  .control-bar .bar-bg {
+    flex: 1;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .control-bar .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+
+  .control-bar .val {
+    width: 40px;
+    text-align: right;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Prompts display */
+  .prompts-list {
+    font-size: 11px;
+    max-height: 80px;
+    overflow-y: auto;
+  }
+
+  .prompt-chip {
+    display: inline-block;
+    padding: 2px 6px;
+    margin: 2px;
+    background: var(--accent-glow);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    font-size: 10px;
+  }
+
+  /* ── Canvas area ── */
+  .canvas-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* Start overlay */
+  .start-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10, 10, 15, 0.92);
+    z-index: 20;
+    cursor: pointer;
+    transition: opacity 0.4s;
+  }
+
+  .start-overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .start-overlay h2 {
+    font-size: 28px;
+    font-weight: 300;
+    margin-bottom: 8px;
+  }
+
+  .start-overlay p {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+
+  .start-btn {
+    padding: 12px 32px;
+    font-size: 16px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 24px;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+
+  .start-btn:hover { transform: scale(1.05); }
+
+  /* Data readout overlay */
+  .data-overlay {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(18, 18, 26, 0.85);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 11px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    color: var(--text-dim);
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .data-key { color: var(--accent); }
+
+  .param-effects {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 2px;
+    line-height: 1.5;
+    padding-left: 4px;
+    border-left: 2px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Synaesthesia <span>Engine</span></h1>
+  <div class="header-right">
+    <button id="play-pause-btn" class="play-pause-btn" title="Play / Pause" disabled>&#9654;</button>
+    <div id="status-badge" class="badge">Connecting...</div>
+  </div>
+</header>
+
+<div class="main">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <section>
+      <h3>Lens</h3>
+      <div id="lens-buttons"></div>
+    </section>
+
+    <section id="params-section">
+      <h3>Parameters</h3>
+      <div id="param-sliders"></div>
+      <div id="live-toggle-wrap" style="display:none">
+        <div class="toggle-row">
+          <span>Live Weather</span>
+          <label class="toggle">
+            <input type="checkbox" id="live-toggle">
+            <div class="toggle-track"></div>
+            <div class="toggle-knob"></div>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h3>Lyria Controls</h3>
+      <div id="controls-readout">
+        <div class="control-bar">
+          <span class="label">BPM</span>
+          <div class="bar-bg"><div class="bar-fill" id="bar-bpm" style="width:50%; background:#7c5cfc"></div></div>
+          <span class="val" id="val-bpm">120</span>
+        </div>
+        <div class="control-bar">
+          <span class="label">Density</span>
+          <div class="bar-bg"><div class="bar-fill" id="bar-density" style="width:50%; background:#4ade80"></div></div>
+          <span class="val" id="val-density">0.50</span>
+        </div>
+        <div class="control-bar">
+          <span class="label">Brightness</span>
+          <div class="bar-bg"><div class="bar-fill" id="bar-brightness" style="width:50%; background:#fbbf24"></div></div>
+          <span class="val" id="val-brightness">0.50</span>
+        </div>
+        <div class="control-bar">
+          <span class="label">Guidance</span>
+          <div class="bar-bg"><div class="bar-fill" id="bar-guidance" style="width:67%; background:#f472b6"></div></div>
+          <span class="val" id="val-guidance">4.0</span>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h3>Active Prompts</h3>
+      <div id="prompts-display" class="prompts-list"></div>
+    </section>
+  </aside>
+
+  <!-- Canvas -->
+  <div class="canvas-wrap">
+    <canvas id="viz-canvas"></canvas>
+    <div class="data-overlay" id="data-overlay"></div>
+
+    <div class="start-overlay" id="start-overlay">
+      <h2>Synaesthesia Engine</h2>
+      <p>Hear what numbers hide. See what sound reveals.</p>
+      <button class="start-btn" id="start-btn">Start Experience</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════════════
+let ws = null;
+let audioCtx = null;
+let workletNode = null;
+let currentLens = 'atmosphere';
+let vizState = null;
+let lensesInfo = {};
+let animFrame = null;
+let isPaused = false;
+const canvas = document.getElementById('viz-canvas');
+const ctx = canvas.getContext('2d');
+const playPauseBtn = document.getElementById('play-pause-btn');
+
+// ═══════════════════════════════════════════════════════════════════════
+// Audio setup
+// ═══════════════════════════════════════════════════════════════════════
+async function initAudio() {
+  audioCtx = new AudioContext({ sampleRate: 48000 });
+  await audioCtx.audioWorklet.addModule('/static/worklet.js');
+  workletNode = new AudioWorkletNode(audioCtx, 'pcm-player-processor', {
+    outputChannelCount: [2],
+  });
+  workletNode.connect(audioCtx.destination);
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// WebSocket
+// ═══════════════════════════════════════════════════════════════════════
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    document.getElementById('status-badge').textContent = 'Connected';
+    document.getElementById('status-badge').className = 'badge';
+  };
+
+  ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      // Binary: PCM audio
+      if (workletNode) {
+        workletNode.port.postMessage(event.data, [event.data]);
+      }
+    } else {
+      // Text: JSON state
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === 'init') {
+        lensesInfo = msg.lenses;
+        currentLens = msg.lens;
+        updateMockBadge(msg.is_mock);
+        updatePlayPauseUI(msg.paused || false);
+        playPauseBtn.disabled = false;
+        buildLensButtons();
+        buildParamSliders();
+        return;
+      }
+
+      if (msg.type === 'paused') {
+        updatePlayPauseUI(msg.paused);
+        return;
+      }
+
+      if (msg.viz) vizState = msg.viz;
+      if (msg.controls) updateControlsReadout(msg.controls);
+      if (msg.is_mock !== undefined) updateMockBadge(msg.is_mock);
+      if (msg.lens) {
+        currentLens = msg.lens;
+        highlightActiveLens();
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    document.getElementById('status-badge').textContent = 'Disconnected';
+    document.getElementById('status-badge').className = 'badge mock';
+    setTimeout(connectWS, 2000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+function sendMsg(data) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
+}
+
+function updatePlayPauseUI(paused) {
+  isPaused = paused;
+  // ▶ = play icon (shown when paused, clicking will play)
+  // ⏸ = pause icon (shown when playing, clicking will pause)
+  playPauseBtn.innerHTML = isPaused ? '&#9654;' : '&#9646;&#9646;';
+  playPauseBtn.title = isPaused ? 'Play' : 'Pause';
+  playPauseBtn.classList.toggle('playing', !isPaused);
+
+  // Suspend/resume AudioContext for clean silence
+  if (audioCtx) {
+    if (isPaused) {
+      audioCtx.suspend();
+    } else {
+      audioCtx.resume();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// UI builders
+// ═══════════════════════════════════════════════════════════════════════
+function updateMockBadge(isMock) {
+  const badge = document.getElementById('status-badge');
+  if (isMock) {
+    badge.textContent = 'Mock Audio';
+    badge.className = 'badge mock';
+  } else {
+    badge.textContent = 'Lyria RealTime';
+    badge.className = 'badge';
+  }
+}
+
+function buildLensButtons() {
+  const container = document.getElementById('lens-buttons');
+  container.innerHTML = '';
+
+  const lensOrder = ['atmosphere', 'pulse', 'lattice', 'flow'];
+  const icons = { atmosphere: '\u2601', pulse: '\u2665', lattice: '\u2227', flow: '\u21c4' };
+
+  for (const name of lensOrder) {
+    const info = lensesInfo[name];
+    if (!info) continue;
+    const btn = document.createElement('button');
+    btn.className = 'lens-btn' + (name === currentLens ? ' active' : '');
+    btn.dataset.lens = name;
+    btn.innerHTML = `<div class="lens-name">${icons[name] || ''} ${name.charAt(0).toUpperCase() + name.slice(1)}</div>
+      <div class="lens-desc">${info.description}</div>`;
+    btn.onclick = () => {
+      sendMsg({ type: 'switch_lens', lens: name });
+      currentLens = name;
+      highlightActiveLens();
+      buildParamSliders();
+    };
+    container.appendChild(btn);
+  }
+}
+
+function highlightActiveLens() {
+  document.querySelectorAll('.lens-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.lens === currentLens);
+  });
+}
+
+function buildParamSliders() {
+  const container = document.getElementById('param-sliders');
+  container.innerHTML = '';
+
+  const info = lensesInfo[currentLens];
+  if (!info) return;
+
+  for (const p of info.parameters) {
+    const group = document.createElement('div');
+    group.className = 'param-group';
+
+    const label = document.createElement('div');
+    label.className = 'param-label';
+    label.innerHTML = `<span>${p.label}</span><span class="param-value" id="pv-${p.name}">${p.default.toFixed(2)}</span>`;
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = p.min;
+    slider.max = p.max;
+    slider.step = p.step;
+    slider.value = p.default;
+    slider.oninput = () => {
+      const val = parseFloat(slider.value);
+      document.getElementById(`pv-${p.name}`).textContent = val.toFixed(2);
+      sendMsg({ type: 'set_param', name: p.name, value: val });
+    };
+
+    group.appendChild(label);
+    group.appendChild(slider);
+
+    if (p.effects && p.effects.length > 0) {
+      const effects = document.createElement('div');
+      effects.className = 'param-effects';
+      effects.innerHTML = p.effects.join('<br>');
+      group.appendChild(effects);
+    }
+
+    container.appendChild(group);
+  }
+
+  // Show/hide live toggle for atmosphere
+  const liveWrap = document.getElementById('live-toggle-wrap');
+  liveWrap.style.display = currentLens === 'atmosphere' ? 'block' : 'none';
+}
+
+function updateControlsReadout(controls) {
+  // BPM: range 60-200
+  const bpmPct = ((controls.bpm - 60) / 140) * 100;
+  document.getElementById('bar-bpm').style.width = bpmPct + '%';
+  document.getElementById('val-bpm').textContent = controls.bpm;
+
+  // Density: 0-1
+  document.getElementById('bar-density').style.width = (controls.density * 100) + '%';
+  document.getElementById('val-density').textContent = controls.density.toFixed(2);
+
+  // Brightness: 0-1
+  document.getElementById('bar-brightness').style.width = (controls.brightness * 100) + '%';
+  document.getElementById('val-brightness').textContent = controls.brightness.toFixed(2);
+
+  // Guidance: 0-6
+  document.getElementById('bar-guidance').style.width = ((controls.guidance / 6) * 100) + '%';
+  document.getElementById('val-guidance').textContent = controls.guidance.toFixed(1);
+
+  // Prompts
+  const pd = document.getElementById('prompts-display');
+  if (controls.prompts) {
+    pd.innerHTML = controls.prompts.map(p =>
+      `<span class="prompt-chip">${p.text} (${p.weight.toFixed(1)})</span>`
+    ).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Canvas renderers
+// ═══════════════════════════════════════════════════════════════════════
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+}
+
+// ── Atmosphere particles ──
+const particles = [];
+function initParticles(count) {
+  particles.length = 0;
+  const w = canvas.width / devicePixelRatio;
+  const h = canvas.height / devicePixelRatio;
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: 0, vy: 0,
+      size: 2 + Math.random() * 2,
+      alpha: 0.3 + Math.random() * 0.5,
+    });
+  }
+}
+
+function renderAtmosphere(state) {
+  const w = canvas.width / devicePixelRatio;
+  const h = canvas.height / devicePixelRatio;
+  const c = state.color || { r: 150, g: 200, b: 230 };
+  const vel = state.particle_velocity || 0.3;
+  const targetCount = state.particle_count || 100;
+
+  // Adjust particle count
+  while (particles.length < targetCount) {
+    particles.push({ x: Math.random() * w, y: -10, vx: 0, vy: 0, size: 2, alpha: 0.4 });
+  }
+  while (particles.length > targetCount + 20) particles.pop();
+
+  // Update particles
+  const windAngle = state.wind_angle || 0;
+  const wx = Math.cos(windAngle) * vel * 3;
+  const wy = Math.sin(windAngle) * vel * 1.5 + 0.3;
+
+  for (const p of particles) {
+    p.vx += (wx - p.vx) * 0.05;
+    p.vy += (wy - p.vy) * 0.05;
+    p.x += p.vx;
+    p.y += p.vy;
+
+    if (p.x > w + 10) p.x = -10;
+    if (p.x < -10) p.x = w + 10;
+    if (p.y > h + 10) { p.y = -10; p.x = Math.random() * w; }
+    if (p.y < -10) p.y = h + 10;
+  }
+
+  // Draw
+  ctx.fillStyle = `rgba(${Math.max(0, c.r - 140)}, ${Math.max(0, c.g - 140)}, ${Math.max(0, c.b - 140)}, 0.15)`;
+  ctx.fillRect(0, 0, w, h);
+
+  for (const p of particles) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, state.particle_size || p.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${c.r}, ${c.g}, ${c.b}, ${p.alpha})`;
+    ctx.fill();
+  }
+
+  // Rain drops
+  if (state.rain_drops) {
+    ctx.strokeStyle = `rgba(180, 200, 255, 0.3)`;
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 30; i++) {
+      const rx = Math.random() * w;
+      const ry = Math.random() * h;
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.lineTo(rx + wx * 3, ry + 8);
+      ctx.stroke();
+    }
+  }
+
+  // Lightning flash
+  if (state.lightning && Math.random() < 0.03) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  renderDataOverlay(state.data);
+}
+
+// ── Pulse ECG ──
+function renderPulse(state) {
+  const w = canvas.width / devicePixelRatio;
+  const h = canvas.height / devicePixelRatio;
+  const c = state.color || { r: 80, g: 220, b: 120 };
+
+  // Clear with fade
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.12)';
+  ctx.fillRect(0, 0, w, h);
+
+  // Draw ECG trace
+  const history = state.ecg_history || [];
+  if (history.length > 1) {
+    const traceH = h * 0.4;
+    const traceY = h * 0.35;
+    const stepX = w / Math.max(200, history.length);
+
+    ctx.beginPath();
+    ctx.strokeStyle = `rgb(${c.r}, ${c.g}, ${c.b})`;
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = `rgb(${c.r}, ${c.g}, ${c.b})`;
+
+    for (let i = 0; i < history.length; i++) {
+      const x = i * stepX;
+      const y = traceY - history[i] * traceH * 0.5;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Pulsing circle
+  const pulseSize = (state.pulse_size || 0.5) * Math.min(w, h) * 0.2;
+  const cx = w * 0.5;
+  const cy = h * 0.75;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, pulseSize, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(${c.r}, ${c.g}, ${c.b}, 0.15)`;
+  ctx.fill();
+  ctx.strokeStyle = `rgba(${c.r}, ${c.g}, ${c.b}, 0.6)`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Arrhythmia flash
+  if (state.arrhythmia) {
+    ctx.fillStyle = 'rgba(255, 50, 50, 0.1)';
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  renderDataOverlay(state.data);
+}
+
+// ── Lattice ──
+function renderLattice(state) {
+  const w = canvas.width / devicePixelRatio;
+  const h = canvas.height / devicePixelRatio;
+  const c = state.color || { r: 150, g: 100, b: 255 };
+  const glow = state.glow_intensity || 0.5;
+
+  // Fade
+  ctx.fillStyle = `rgba(10, 10, 15, 0.08)`;
+  ctx.fillRect(0, 0, w, h);
+
+  if (state.mode === 'lorenz') {
+    const trail = state.trail || [];
+    if (trail.length > 1) {
+      // Scale Lorenz coords to canvas
+      const scaleX = w / 60;
+      const scaleY = h / 50;
+      const offsetX = w / 2;
+      const offsetY = h / 2;
+
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(${c.r}, ${c.g}, ${c.b}, 0.7)`;
+      ctx.lineWidth = 1.5;
+      ctx.shadowBlur = glow * 15;
+      ctx.shadowColor = `rgb(${c.r}, ${c.g}, ${c.b})`;
+
+      for (let i = 0; i < trail.length; i++) {
+        const x = trail[i][0] * scaleX + offsetX;
+        const y = trail[i][1] * scaleY + offsetY;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Current point
+      if (state.current) {
+        const cx = state.current.x * scaleX + offsetX;
+        const cy = state.current.y * scaleY + offsetY;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+        ctx.fillStyle = `rgb(${c.r}, ${c.g}, ${c.b})`;
+        ctx.fill();
+      }
+    }
+  } else if (state.mode === 'logistic') {
+    const iterations = state.iterations || [];
+    if (iterations.length > 0) {
+      const stepX = w / iterations.length;
+      const scaleY = h * 0.8;
+      const offsetY = h * 0.1;
+
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(${c.r}, ${c.g}, ${c.b}, 0.8)`;
+      ctx.lineWidth = 2;
+
+      for (let i = 0; i < iterations.length; i++) {
+        const x = i * stepX;
+        const y = offsetY + (1 - iterations[i]) * scaleY;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Draw dots at each iteration
+      ctx.fillStyle = `rgba(${c.r}, ${c.g}, ${c.b}, 0.5)`;
+      for (let i = 0; i < iterations.length; i++) {
+        ctx.beginPath();
+        ctx.arc(i * stepX, offsetY + (1 - iterations[i]) * scaleY, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else {
+    // Sine superposition
+    const components = state.components || [];
+    const t = performance.now() / 1000;
+
+    for (let comp = 0; comp < components.length; comp++) {
+      const { freq, amp } = components[comp];
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(${c.r}, ${c.g + comp * 20}, ${c.b - comp * 30}, ${0.4 + amp})`;
+      ctx.lineWidth = 1.5;
+
+      for (let x = 0; x < w; x += 2) {
+        const y = h / 2 + Math.sin((x / w) * Math.PI * 4 * freq + t * freq) * amp * h * 0.3;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  renderDataOverlay(state.data);
+}
+
+// ── Flow network ──
+function renderFlow(state) {
+  const w = canvas.width / devicePixelRatio;
+  const h = canvas.height / devicePixelRatio;
+  const c = state.color || { r: 50, g: 200, b: 200 };
+  const pulse = state.pulse_intensity || 0.3;
+
+  // Clear
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.15)';
+  ctx.fillRect(0, 0, w, h);
+
+  const nodes = state.nodes || [];
+  const edges = state.active_edges || [];
+  const margin = 60;
+  const nodeGlow = state.node_glow || 0.5;
+
+  // Draw edges
+  ctx.lineWidth = 1.5;
+  for (const edge of edges) {
+    const src = nodes[edge.src];
+    const dst = nodes[edge.dst];
+    if (!src || !dst) continue;
+
+    const x1 = margin + src.x * (w - margin * 2);
+    const y1 = margin + src.y * (h - margin * 2);
+    const x2 = margin + dst.x * (w - margin * 2);
+    const y2 = margin + dst.y * (h - margin * 2);
+
+    const alpha = 0.3 + (edge.packets / 5) * 0.5;
+    ctx.strokeStyle = `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    // Packet dot animation along edge
+    const progress = (performance.now() / 500) % 1;
+    const px = x1 + (x2 - x1) * progress;
+    const py = y1 + (y2 - y1) * progress;
+    ctx.beginPath();
+    ctx.arc(px, py, 3, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${c.r}, ${c.g}, ${c.b}, 0.8)`;
+    ctx.fill();
+  }
+
+  // Draw nodes
+  for (const node of nodes) {
+    const x = margin + node.x * (w - margin * 2);
+    const y = margin + node.y * (h - margin * 2);
+    const radius = 8 + pulse * 8;
+
+    // Glow
+    ctx.beginPath();
+    ctx.arc(x, y, radius + nodeGlow * 10, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${c.r}, ${c.g}, ${c.b}, ${nodeGlow * 0.15})`;
+    ctx.fill();
+
+    // Node
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${c.r}, ${c.g}, ${c.b}, 0.6)`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(${c.r}, ${c.g}, ${c.b}, 0.9)`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Burst flash
+  if (state.is_burst) {
+    ctx.fillStyle = 'rgba(255, 60, 60, 0.05)';
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  renderDataOverlay(state.data);
+}
+
+// ── Data overlay ──
+function renderDataOverlay(data) {
+  const el = document.getElementById('data-overlay');
+  if (!data) { el.textContent = ''; return; }
+
+  el.innerHTML = Object.entries(data).map(([k, v]) => {
+    const val = typeof v === 'number' ? v.toFixed(2) : v;
+    return `<span class="data-key">${k}:</span> ${val}`;
+  }).join('<br>');
+}
+
+// ── Animation loop ──
+function animate() {
+  if (vizState && !isPaused) {
+    const type = vizState.type;
+    if (type === 'atmosphere') renderAtmosphere(vizState);
+    else if (type === 'pulse') renderPulse(vizState);
+    else if (type === 'lattice') renderLattice(vizState);
+    else if (type === 'flow') renderFlow(vizState);
+  }
+  animFrame = requestAnimationFrame(animate);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Initialization
+// ═══════════════════════════════════════════════════════════════════════
+window.addEventListener('resize', resizeCanvas);
+
+document.getElementById('start-btn').addEventListener('click', async () => {
+  document.getElementById('start-overlay').classList.add('hidden');
+  await initAudio();
+  resizeCanvas();
+  initParticles(150);
+  connectWS();
+  animate();
+});
+
+// Play/Pause button
+playPauseBtn.addEventListener('click', () => {
+  if (isPaused) {
+    sendMsg({ type: 'play' });
+  } else {
+    sendMsg({ type: 'pause' });
+  }
+});
+
+// Live weather toggle
+document.getElementById('live-toggle').addEventListener('change', (e) => {
+  sendMsg({ type: 'toggle_live', enabled: e.target.checked });
+});
+</script>
+</body>
+</html>
